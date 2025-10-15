@@ -1,0 +1,11 @@
+seaborn
+pyplot
+transformers
+network
+plotly
+seaborn
+transformers
+torch
+pandas>=2.2
+pyarrow>=14
+fastparquet
