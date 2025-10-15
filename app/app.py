@@ -251,7 +251,7 @@ def main():
         return
     
     # Display basic info
-    st.sidebar.header("Dataset Information")
+    st.sidebar.header("Conan Data - Assessoria de Data")
     st.sidebar.write(f"Total records: {len(df):,}")
     st.sidebar.write(f"Date range: {df['Data'].min().strftime('%Y-%m-%d')} to {df['Data'].max().strftime('%Y-%m-%d')}")
     
