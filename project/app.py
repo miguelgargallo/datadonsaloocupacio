@@ -1,9 +1,10 @@
-# filename: app_gradio.py
+# filename: app.py
 import os
 import glob
 import io
+import tempfile
 import unicodedata
-from datetime import date
+from datetime import datetime, date
 from typing import List, Optional, Tuple
 
 import pandas as pd
@@ -35,16 +36,17 @@ def load_district_map(root_dir: str) -> Optional[pd.DataFrame]:
     path = os.path.join(root_dir, "districtes.csv")
     if not os.path.isfile(path):
         return None
-    try:
-        df = pd.read_csv(path)
-    except Exception:
+    # tolerancia de separador
+    for sep in [",", ";", "\t"]:
         try:
-            df = pd.read_csv(path, sep=";")
+            df = pd.read_csv(path, sep=sep)
+            break
         except Exception:
-            return None
-    # Intentar encontrar columnas de id/nombre
+            df = None
+    if df is None:
+        return None
+
     cols = {normalize_text(c).lower(): c for c in df.columns}
-    # Adivinar nombres comunes
     id_col = None
     name_col = None
     for guess in ["id", "districte", "district", "codigo", "cod"]:
@@ -57,13 +59,11 @@ def load_district_map(root_dir: str) -> Optional[pd.DataFrame]:
         if g in cols:
             name_col = cols[g]
             break
-    # Si no encontramos, intentar primeras dos columnas
     if id_col is None or name_col is None:
         if len(df.columns) >= 2:
             id_col, name_col = df.columns[0], df.columns[1]
         else:
             return None
-    # Normalizar tipos
     m = df[[id_col, name_col]].copy()
     m.columns = ["Districte", "NombreDistrito"]
     m["Districte"] = pd.to_numeric(m["Districte"], errors="coerce")
@@ -85,7 +85,6 @@ def load_all_csv(root_dir: str) -> pd.DataFrame:
 
     dfs = []
     for f in files:
-        # Leer con tolerancia de separador
         df = None
         for sep in [",", ";", "\t"]:
             try:
@@ -96,7 +95,6 @@ def load_all_csv(root_dir: str) -> pd.DataFrame:
         if df is None:
             continue
 
-        # Mapear columnas con tolerancia a acentos/caso
         colmap = {normalize_text(c).lower().strip(): c for c in df.columns}
         mapped = {}
         for target in EXPECTED_COLUMNS:
@@ -110,11 +108,9 @@ def load_all_csv(root_dir: str) -> pd.DataFrame:
         df = df[[mapped[c] for c in EXPECTED_COLUMNS]]
         df.columns = EXPECTED_COLUMNS
 
-        # Tipos
         df["Data"] = pd.to_datetime(df["Data"], errors="coerce")
         for num_col in ["Numero_de_comptadors", "Consum_litres_per_dia", "Districte"]:
             df[num_col] = pd.to_numeric(df[num_col], errors="coerce")
-
         for txt_col in ["Seccio_censal", "Municipi", "Tipus_us"]:
             df[txt_col] = df[txt_col].astype(str)
 
@@ -130,7 +126,6 @@ def load_all_csv(root_dir: str) -> pd.DataFrame:
     all_df["Uso"] = all_df["Tipus_us"].apply(lambda s: str(s).split("/")[-1] if isinstance(s, str) else s)
     all_df = all_df.sort_values("Data").reset_index(drop=True)
 
-    # Cargar mapa de distritos si existe
     district_map = load_district_map(root_dir)
     if district_map is not None and not district_map.empty:
         all_df = all_df.merge(district_map, on="Districte", how="left")
@@ -149,10 +144,19 @@ def get_filter_options(df: pd.DataFrame):
     max_d = df["Fecha"].max()
     return distritos, municipios, usos, secciones, min_d, max_d
 
+def parse_date_text(s: str, fallback: date) -> date:
+    """Convierte 'YYYY-MM-DD' a date; si falla, usa fallback."""
+    if not s:
+        return fallback
+    try:
+        return datetime.strptime(s.strip(), "%Y-%m-%d").date()
+    except Exception:
+        return fallback
+
 def filter_df(
     df: pd.DataFrame,
-    start_date: date,
-    end_date: date,
+    start_date_txt: str,
+    end_date_txt: str,
     distritos: List[float],
     municipios: List[str],
     usos: List[str],
@@ -160,10 +164,13 @@ def filter_df(
 ) -> pd.DataFrame:
     if df.empty:
         return df
-    mask = (
-        (df["Fecha"] >= start_date) &
-        (df["Fecha"] <= end_date)
-    )
+    # Rango de fechas seguro
+    min_d = df["Fecha"].min() or date(2023, 1, 1)
+    max_d = df["Fecha"].max() or date(2023, 12, 31)
+    start_date = parse_date_text(start_date_txt, min_d)
+    end_date = parse_date_text(end_date_txt, max_d)
+
+    mask = (df["Fecha"] >= start_date) & (df["Fecha"] <= end_date)
     if distritos:
         mask &= df["Districte"].isin(distritos)
     if municipios:
@@ -181,8 +188,8 @@ def compute_metrics(fdf: pd.DataFrame) -> Tuple[str, str, str, str]:
     total_dias = int(fdf["Fecha"].nunique())
     total_contadores = int(pd.to_numeric(fdf["Numero_de_comptadors"], errors="coerce").sum())
     promedio_dia = (total_consumo / total_dias) if total_dias else 0.0
-    fmt = lambda x: f"{int(x):,}".replace(",", ".")
-    return fmt(total_consumo), str(total_dias), fmt(total_contadores), fmt(promedio_dia)
+    fmt_int = lambda x: f"{int(x):,}".replace(",", ".")
+    return fmt_int(total_consumo), str(total_dias), fmt_int(total_contadores), fmt_int(promedio_dia)
 
 def make_timeseries_plot(fdf: pd.DataFrame):
     if fdf.empty:
@@ -193,7 +200,6 @@ def make_timeseries_plot(fdf: pd.DataFrame):
         .rename(columns={"Consum_litres_per_dia": "Consumo (L)"})
     )
     fig1 = px.line(gdf, x="Fecha", y="Consumo (L)", title="Consumo diario total", markers=True)
-    # por uso
     guso = (
         fdf.groupby(["Fecha", "Uso"], as_index=False)["Consum_litres_per_dia"]
         .sum()
@@ -215,127 +221,5 @@ def make_top_sections_plot(fdf: pd.DataFrame):
     fig.update_layout(xaxis={'type': 'category'})
     return fig
 
-def to_csv_bytes(fdf: pd.DataFrame) -> bytes:
-    if fdf.empty:
-        return b""
-    out = fdf.copy()
-    out["Data"] = pd.to_datetime(out["Data"]).dt.strftime("%Y-%m-%d")
-    # Orden amigable
-    cols = [
-        "Data", "Seccio_censal", "Districte",
-        "Municipi", "Uso", "Numero_de_comptadors",
-        "Consum_litres_per_dia"
-    ]
-    if "NombreDistrito" in out.columns:
-        cols.insert(3, "NombreDistrito")
-    out = out[[c for c in cols if c in out.columns]]
-    buf = io.StringIO()
-    out.to_csv(buf, index=False)
-    return buf.getvalue().encode("utf-8")
-
-# Gradio funciones de callback
-def refresh_data(root_dir: str):
-    df = load_all_csv(root_dir)
-    distritos, municipios, usos, secciones, min_d, max_d = get_filter_options(df)
-    return gr.update(choices=distritos, value=distritos), \
-           gr.update(choices=municipios, value=municipios), \
-           gr.update(choices=usos, value=usos), \
-           gr.update(choices=secciones, value=[]), \
-           min_d, max_d, df
-
-def run_filter(
-    df: pd.DataFrame,
-    start_date: date,
-    end_date: date,
-    distritos: List[float],
-    municipios: List[str],
-    usos: List[str],
-    secciones: List[str]
-):
-    fdf = filter_df(df, start_date, end_date, distritos, municipios, usos, secciones)
-    total, dias, contadores, promedio = compute_metrics(fdf)
-    ts_fig, uso_fig = make_timeseries_plot(fdf)
-    top_fig = make_top_sections_plot(fdf)
-    # Tabla: recortar columnas y formatear
-    show = fdf.copy()
-    show["Data"] = pd.to_datetime(show["Data"]).dt.strftime("%Y-%m-%d")
-    table_cols = [
-        "Data", "Seccio_censal", "Districte",
-        "Municipi", "Uso", "Numero_de_comptadors",
-        "Consum_litres_per_dia"
-    ]
-    if "NombreDistrito" in show.columns:
-        table_cols.insert(3, "NombreDistrito")
-    show = show[table_cols]
-    # Archivo descarga
-    csv_bytes = to_csv_bytes(fdf)
-    return total, dias, contadores, promedio, ts_fig, uso_fig, top_fig, show, csv_bytes
-
-def build_app():
-    with gr.Blocks(title="WebUI Consumos de Agua · Barcelona") as demo:
-        gr.Markdown("## WebUI Consumos de Agua · Barcelona")
-        gr.Markdown("Explora, filtra y visualiza consumos diarios por distrito, uso y sección censal.")
-        with gr.Row():
-            root_dir = gr.Textbox(
-                label="Directorio raíz del proyecto",
-                value=".",
-                info="La app buscará los CSV dentro de './tablas_pequenas' y, opcionalmente, 'districtes.csv'."
-            )
-            refresh_btn = gr.Button("Cargar / Refrescar datos")
-
-        df_state = gr.State(pd.DataFrame())
-
-        # Filtros
-        with gr.Row():
-            start_date = gr.Datepicker(label="Fecha inicio")
-            end_date = gr.Datepicker(label="Fecha fin")
-        with gr.Row():
-            distritos = gr.CheckboxGroup(label="Distrito (ID)", choices=[])
-            municipios = gr.CheckboxGroup(label="Municipio", choices=[])
-        with gr.Row():
-            usos = gr.CheckboxGroup(label="Tipo de uso", choices=[])
-            secciones = gr.CheckboxGroup(label="Sección censal", choices=[])
-
-        # Botón aplicar filtros
-        apply_btn = gr.Button("Aplicar filtros")
-
-        # Métricas
-        with gr.Row():
-            total_consumo = gr.Textbox(label="Consumo total (L)", interactive=False)
-            total_dias = gr.Textbox(label="Días", interactive=False)
-            total_contadores = gr.Textbox(label="Contadores totales", interactive=False)
-            promedio_diario = gr.Textbox(label="Promedio diario (L)", interactive=False)
-
-        # Gráficas
-        with gr.Row():
-            ts_plot = gr.Plot(label="Consumo diario total")
-            uso_plot = gr.Plot(label="Consumo por tipo de uso (stacked)")
-        top_plot = gr.Plot(label="Top 20 Secciones Censales por consumo (L)")
-
-        # Tabla y descarga
-        table = gr.Dataframe(headers=None, datatype="str", row_count=(10, "dynamic"), col_count=(7, "dynamic"))
-        download = gr.File(label="Descargar CSV filtrado", interactive=False)
-
-        # Eventos
-        refresh_btn.click(
-            fn=refresh_data,
-            inputs=[root_dir],
-            outputs=[distritos, municipios, usos, secciones, start_date, end_date, df_state]
-        )
-
-        apply_btn.click(
-            fn=run_filter,
-            inputs=[df_state, start_date, end_date, distritos, municipios, usos, secciones],
-            outputs=[total_consumo, total_dias, total_contadores, promedio_diario,
-                     ts_plot, uso_plot, top_plot, table, download]
-        )
-
-        gr.Markdown("---")
-        gr.Markdown("Nota: Valores extremos pueden indicar outliers o eventos singulares. Revisa fechas específicas.")
-
-    return demo
-
-if __name__ == "__main__":
-    app = build_app()
-    # Puerto por defecto 7860, puedes cambiarlo
-    app.launch(server_port=7860, show_error=True)
+def to_csv_file(fdf: pd.DataFrame) -> str:
+    """Graba el CSV en un temp file y
