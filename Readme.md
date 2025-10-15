@@ -1,4 +1,5 @@
 
+streamlit run ./app.py
 
 ![One](./one.png)
 ![Two](./two.png)
