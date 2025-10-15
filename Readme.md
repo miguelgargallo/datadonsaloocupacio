@@ -4,6 +4,8 @@
 
 *Powered by Conan Data - Data Consultancy*
 
+By sneymz00, albert-navarro, miguelgargallo
+
 <a href="https://github.com/miguelgargallo/datadonsaloocupacio" target="_blank">
     <img src="./assets/logo.png" alt="Conan Data Logo" width="200"/>
 </a>
@@ -180,3 +182,5 @@ This project is developed by Conan Data for demonstration and commercial purpose
 ## 📸 Screenshots
 ![Four](./assets/four.png)
 ![Five](./assets/five.png)
+
+License from [License](./License)
