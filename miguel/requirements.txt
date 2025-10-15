@@ -1,2 +1,2 @@
-pyarrow
-fastparquet
+seaborn
+pyplot
