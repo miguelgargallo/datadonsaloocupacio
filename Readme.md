@@ -4,6 +4,10 @@
 
 *Powered by Conan Data - Data Consultancy*
 
+<a href="https://github.com/miguelgargallo/datadonsaloocupacio" target="_blank">
+    <img src="./assets/logo.png" alt="Conan Data Logo" width="200"/>
+</a>
+
 ---
 
 ## 🚀 Overview
