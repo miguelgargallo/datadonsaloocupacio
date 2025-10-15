@@ -108,7 +108,7 @@ style: |
 **Transforming Barcelona's Water Data into Strategic Insights**
 
 <div class="company-logo">CONAN DATA</div>
-<div class="tagline">Data Consultancy • Barcelona • 2024</div>
+<div class="tagline">Data Consultancy • Barcelona • 2025</div>
 
 ---
 
@@ -373,4 +373,4 @@ Built to grow with your organization's evolving needs
 <div class="company-logo">CONAN DATA</div>
 <div class="tagline">Transforming Data into Strategic Advantage</div>
 
-**Barcelona • 2024**
+**Barcelona • 2025**
